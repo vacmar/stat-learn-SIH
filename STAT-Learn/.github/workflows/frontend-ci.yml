@@ -1,0 +1,39 @@
+# Local dev often uses Exasol Personal on the host (exakit start). CI unit jobs for
+# backend/ai-service can set EXASOL_ENABLED=false when no database is available.
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - name: Use Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: '20.x'
+    - name: Install dependencies
+      run: |
+        cd frontend
+        npm ci
+    - name: Lint
+      run: |
+        cd frontend
+        npm run lint
+    - name: Typecheck
+      run: |
+        cd frontend
+        npx tsc --noEmit
+    - name: Build Next.js
+      run: |
+        cd frontend
+        npm run build
+    - name: Build Docker Image
+      run: |
+        cd frontend
+        docker build -t manthaino-frontend .

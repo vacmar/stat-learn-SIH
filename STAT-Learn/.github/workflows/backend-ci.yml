@@ -1,0 +1,42 @@
+# Exasol Personal / host DB is used locally (exakit start). Set EXASOL_ENABLED=false in CI when running unit tests without Exasol.
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    - name: Install dependencies
+      run: |
+        cd backend
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+    - name: Lint with Ruff
+      run: |
+        cd backend
+        pip install ruff
+        ruff check .
+        ruff format --check .
+    - name: Typecheck with mypy
+      run: |
+        cd backend
+        pip install mypy
+        mypy .
+    - name: Test with pytest
+      run: |
+        cd backend
+        PYTHONPATH=. pytest -v
+    - name: Build Docker Image
+      run: |
+        cd backend
+        docker build -t manthaino-backend .

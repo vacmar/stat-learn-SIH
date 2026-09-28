@@ -1,0 +1,14 @@
+fastapi
+uvicorn
+pydantic
+pyexasol
+pytest
+ruff
+mypy
+redis
+fakeredis
+httpx
+passlib[bcrypt]
+bcrypt<4.0.0
+email-validator
+python-dotenv

@@ -1,0 +1,1 @@
+- Always use graphify to understand the codebase

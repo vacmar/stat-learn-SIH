@@ -1,0 +1,96 @@
+services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --save 60 1 --loglevel warning
+
+  # NOTE: Do NOT run exasol/docker-db on Apple Silicon — the amd64 image
+  # often never opens port 8563 (healthcheck stays unhealthy forever).
+  # Use the native Exasol Personal runtime instead:
+  #   exakit start
+  # Then point backend at host.docker.internal:8563 (see below).
+  # Optional Linux/CI profile that still uses docker-db:
+  exasol:
+    profiles: ["docker-exasol"]
+    image: exasol/docker-db:7.1.30
+    platform: linux/amd64
+    privileged: true
+    ports:
+      - "8563:8563"
+    environment:
+      EXA_NODE_TYPE: single
+    volumes:
+      - exasol_data:/exa
+    healthcheck:
+      test: [ "CMD-SHELL", "bash -c 'cat < /dev/null > /dev/tcp/127.0.0.1/8563'" ]
+      interval: 10s
+      timeout: 10s
+      retries: 60
+      start_period: 180s
+
+  backend:
+    build:
+      context: ./backend
+    ports:
+      - "8000:8000"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      REDIS_DB: "0"
+      AI_SERVICE_URL: http://ai-service:8001
+      # Host personal Exasol (default local path). Override for docker-exasol profile.
+      EXASOL_DSN: ${EXASOL_DSN:-host.docker.internal:8563}
+      EXASOL_USER: ${EXASOL_USER:-sys}
+      EXASOL_PASSWORD: ${EXASOL_PASSWORD:-}
+      EXASOL_PASSWORD_FILE: /run/secrets/exasol_sys_password
+      EXASOL_ENABLED: ${EXASOL_ENABLED:-true}
+      EXASOL_SCHEMA: ${EXASOL_SCHEMA:-MANTHAINO}
+    volumes:
+      # Native Exasol Personal password (do not commit this path's contents)
+      - ${HOME}/.exasol-starter-kit/credentials/personal_sys_password:/run/secrets/exasol_sys_password:ro
+    depends_on:
+      redis:
+        condition: service_started
+      ai-service:
+        condition: service_started
+
+  ai-service:
+    build:
+      context: ./ai-service
+    ports:
+      - "8001:8001"
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      REDIS_HOST: redis
+      BACKEND_API_URL: http://backend:8000
+      LLM_PROVIDER: ${LLM_PROVIDER:-huggingface}
+      HUGGINGFACE_API_KEY: ${HUGGINGFACE_API_KEY:-}
+      HF_TOKEN: ${HUGGINGFACE_API_KEY:-}
+      HUGGINGFACE_MODEL: ${HUGGINGFACE_MODEL:-meta-llama/Llama-3.1-8B-Instruct}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+    depends_on:
+      redis:
+        condition: service_started
+
+  frontend:
+    build:
+      context: ./frontend
+    ports:
+      - "3000:3000"
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8000
+      NEXT_PUBLIC_BACKEND_URL: http://localhost:8000
+      NEXT_PUBLIC_AI_SERVICE_URL: http://localhost:8001
+    depends_on:
+      - backend
+
+volumes:
+  redis_data:
+  exasol_data:

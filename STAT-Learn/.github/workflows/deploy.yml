@@ -1,0 +1,78 @@
+# Deploy smoke test. On macOS dev, use Exasol Personal (exakit start) — do not rely on docker-db on Apple Silicon.
+# Services can set EXASOL_ENABLED=false when Exasol is unavailable in CI.
+name: Deploy and Smoke Test
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  deploy-and-smoke:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Prepare CI secrets stub
+      run: |
+        mkdir -p "$HOME/.exasol-starter-kit/credentials"
+        # Compose mounts this path; empty file is fine when EXASOL_ENABLED=false
+        : > "$HOME/.exasol-starter-kit/credentials/personal_sys_password"
+
+    - name: Start Docker Compose Stack
+      env:
+        # Smoke only needs processes up — no live Exasol/HF in Actions
+        EXASOL_ENABLED: "false"
+        LLM_PROVIDER: mock
+      run: docker compose up -d --build
+
+    - name: Wait for backend health
+      run: |
+        echo "Waiting for backend /health (up to ~60s)..."
+        for i in $(seq 1 30); do
+          if curl -sf http://localhost:8000/health; then
+            echo
+            echo "Backend healthy"
+            exit 0
+          fi
+          sleep 2
+        done
+        echo "Backend did not become healthy in time"
+        docker compose logs backend --tail=200 || true
+        curl -v http://localhost:8000/health || true
+        exit 1
+
+    - name: Wait for ai-service health
+      run: |
+        echo "Waiting for ai-service /health (up to ~90s)..."
+        for i in $(seq 1 45); do
+          if curl -sf http://localhost:8001/health; then
+            echo
+            echo "AI service healthy"
+            exit 0
+          fi
+          sleep 2
+        done
+        echo "AI service did not become healthy in time"
+        docker compose ps || true
+        docker compose logs ai-service --tail=200 || true
+        curl -v http://localhost:8001/health || true
+        exit 1
+
+    - name: Wait for frontend
+      run: |
+        echo "Waiting for frontend (up to ~60s)..."
+        for i in $(seq 1 30); do
+          if curl -sf http://localhost:3000 >/dev/null; then
+            echo "Frontend healthy"
+            exit 0
+          fi
+          sleep 2
+        done
+        echo "Frontend did not become healthy in time"
+        docker compose logs frontend --tail=200 || true
+        curl -v http://localhost:3000 || true
+        exit 1
+
+    - name: Tear down
+      if: always()
+      run: docker compose down
